@@ -37,6 +37,11 @@ import { analyzeStateOptimizations } from './stateOptimizer';
 import { analyzeAugustaRuleOptimization } from './augustaRuleOptimizer';
 import { analyzeK1Optimizations } from './k1Optimizer';
 import { analyzeAMTOptimizations } from './amtOptimizer';
+// State PTET and special tax optimizers
+import { analyzeStatePTETOptimizations } from './statePTETOptimizer';
+import { analyzeCryptoTaxOptimizations } from './cryptoTaxOptimizer';
+import { analyzeRealEstateProfessionalOptimizations } from './realEstateProfessionalOptimizer';
+import { analyzeInternationalTaxOptimizations } from './internationalTaxOptimizer';
 
 
 // ============================================================================
@@ -253,6 +258,52 @@ export function analyzeTaxOptimizations(form) {
         allOptimizations.push(...amtOpts);
     } catch (e) {
         console.warn('AMT optimizer error:', e);
+    }
+
+    // ----- STATE PTET OPTIMIZER -----
+    // Pass-Through Entity Tax elections for SALT cap workaround
+    // Analyzes: NY PTET, CA PTE, NJ BAIT, TX Margin Tax, CA Mental Health Tax
+    // Covers 16 states: CA, NY, NJ, CT, GA, IL, MA, AZ, MD, MN, WI, NC, OH, OR, SC, VA
+    // LEGAL AUTHORITY: IRS Notice 2020-75
+    try {
+        const ptetOpts = analyzeStatePTETOptimizations(form);
+        allOptimizations.push(...ptetOpts);
+    } catch (e) {
+        console.warn('State PTET optimizer error:', e);
+    }
+
+    // ----- CRYPTOCURRENCY TAX OPTIMIZER -----
+    // Tax strategies for cryptocurrency holdings
+    // Analyzes: Cost basis methods (FIFO, LIFO, HIFO), tax-loss harvesting,
+    // staking income, mining, airdrops, NFTs, DeFi
+    // NOTE: Crypto is NOT subject to wash sale rules!
+    try {
+        const cryptoOpts = analyzeCryptoTaxOptimizations(form);
+        allOptimizations.push(...cryptoOpts);
+    } catch (e) {
+        console.warn('Crypto tax optimizer error:', e);
+    }
+
+    // ----- REAL ESTATE PROFESSIONAL OPTIMIZER -----
+    // Real Estate Professional status under IRC §469(c)(7)
+    // Analyzes: REP qualification (750 hours), material participation,
+    // grouping elections, suspended passive losses, $25k exception
+    try {
+        const repOpts = analyzeRealEstateProfessionalOptimizations(form);
+        allOptimizations.push(...repOpts);
+    } catch (e) {
+        console.warn('Real Estate Professional optimizer error:', e);
+    }
+
+    // ----- INTERNATIONAL TAX OPTIMIZER -----
+    // Tax strategies for US citizens abroad and foreign income
+    // Analyzes: FEIE ($130,000 exclusion), Foreign Tax Credit,
+    // FBAR, FATCA Form 8938, tax treaties, PFIC warnings
+    try {
+        const intlOpts = analyzeInternationalTaxOptimizations(form);
+        allOptimizations.push(...intlOpts);
+    } catch (e) {
+        console.warn('International tax optimizer error:', e);
     }
 
     // Step 3: Filter and sort optimizations
