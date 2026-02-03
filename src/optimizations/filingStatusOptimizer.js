@@ -5,7 +5,7 @@
 
 import { calculateTotalTax, calculateTaxWithOverrides, STANDARD_DEDUCTIONS_2025 } from '../calculations/calculateTax.js';
 import { DIFFICULTY, CATEGORY } from './taxOptimizer.js';
-import { isCommunityPropertyState, analyzeCaliforniaMentalHealthTax } from '../stateData/communityPropertyStates';
+import { isCommunityPropertyState, analyzeCaliforniaMentalHealthTax } from '../stateData/communityPropertyStates.js';
 
 /**
  * Analyze all filing status optimization opportunities

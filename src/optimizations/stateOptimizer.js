@@ -15,7 +15,7 @@ import {
     calculateStateTax,
     calculateWashingtonCapitalGainsTax,
     getStateName,
-} from '../stateData/stateTaxRates';
+} from '../stateData/stateTaxRates.js';
 import {
     STATE_EITC,
     STATE_CTC,
@@ -23,22 +23,22 @@ import {
     calculateStateCTC,
     hasStateEITC,
     hasStateCTC,
-} from '../stateData/stateCredits';
+} from '../stateData/stateCredits.js';
 import {
     STATE_529_DEDUCTIONS,
     calculate529Benefit,
     has529Benefit,
-} from '../stateData/state529Plans';
+} from '../stateData/state529Plans.js';
 import {
     COMMUNITY_PROPERTY_STATES,
     isCommunityPropertyState,
     analyzeCaliforniaMentalHealthTax,
-} from '../stateData/communityPropertyStates';
+} from '../stateData/communityPropertyStates.js';
 import {
     isSSFullyExempt,
     calculateSSStateExclusion,
     getStateRetirementSummary,
-} from '../stateData/stateRetirementExclusions';
+} from '../stateData/stateRetirementExclusions.js';
 
 /**
  * Analyze all state-specific optimization opportunities
