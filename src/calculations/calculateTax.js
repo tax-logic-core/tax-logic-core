@@ -23,6 +23,8 @@
  * ============================================================================
  */
 
+import { getSaltCap, getPolicyFlags } from '../policy.js';
+
 // ============================================================================
 // SECTION 1: TAX BRACKETS (IRC §1)
 // ============================================================================
@@ -398,7 +400,11 @@ export function calculateCapitalGainsTax(taxableIncome, capitalGains, filingStat
  * @param {number} netSelfEmploymentIncome - Schedule C net profit (or K-1 SE income)
  * @returns {Object} { tax: total SE tax, deduction: deductible portion }
  */
-export function calculateSelfEmploymentTax(netSelfEmploymentIncome) {
+export function calculateSelfEmploymentTax(
+    netSelfEmploymentIncome,
+    wages = 0,
+    filingStatus = 'single'
+) {
     // No SE tax if no SE income
     if (netSelfEmploymentIncome <= 0) return { tax: 0, deduction: 0 };
 
@@ -408,10 +414,11 @@ export function calculateSelfEmploymentTax(netSelfEmploymentIncome) {
 
     // Step 2: Calculate Social Security portion (12.4%)
     // Subject to wage base limit ($176,100 for 2025)
-    // NOTE: If taxpayer has W-2 income, that uses up part of the wage base first
-    // This simplified calculation assumes no W-2 income
+    // Reduce wage base by W-2 Social Security wages
     const ssWageBase = 176100;
-    const ssTax = Math.min(taxableBase, ssWageBase) * 0.124;
+    const remainingSSBase = Math.max(0, ssWageBase - Math.min(ssWageBase, wages || 0));
+    const ssTaxableSE = Math.min(taxableBase, remainingSSBase);
+    const ssTax = ssTaxableSE * 0.124;
 
     // Step 3: Calculate Medicare portion (2.9%)
     // No wage base limit - applies to ALL SE income
@@ -420,9 +427,10 @@ export function calculateSelfEmploymentTax(netSelfEmploymentIncome) {
     // Step 4: Calculate Additional Medicare Tax (0.9%)
     // Applies to SE income over threshold (IRC §1401(b)(2))
     // Thresholds: $200k (single/HOH), $250k (MFJ), $125k (MFS)
-    // This simplified version uses $200k (single threshold)
-    const additionalMedicareThreshold = 200000;
-    const additionalMedicare = Math.max(0, taxableBase - additionalMedicareThreshold) * 0.009;
+    const thresholds = { single: 200000, head: 200000, married: 250000, widow: 250000, marriedSeparate: 125000 };
+    const threshold = thresholds[filingStatus] || 200000;
+    const addlBase = Math.max(0, taxableBase - Math.max(0, threshold - (wages || 0)));
+    const additionalMedicare = addlBase * 0.009;
 
     // Total SE tax
     const totalTax = ssTax + medicareTax + additionalMedicare;
@@ -637,17 +645,25 @@ export function calculateTotalTax(form) {
      * LOSS LIMIT: Can deduct up to $3,000 ($1,500 MFS) of net capital losses per year
      * Excess losses carry forward to future years (never expire)
      */
-    let scheduleD = 0;
+    // Net capital gains/losses with $3,000 ($1,500 MFS) loss limit against ordinary income
+    let shortTermGain = 0;
+    let shortTermLoss = 0;
+    let longTermGain = 0;
+    let longTermLoss = 0;
     if (form.hasScheduleD && form.scheduleD) {
-        scheduleD = (parseFloat(form.scheduleD.shortTermGain) || 0) +
-            (parseFloat(form.scheduleD.longTermGain) || 0);
+        shortTermGain = parseFloat(form.scheduleD.shortTermGain) || 0;
+        shortTermLoss = Math.abs(parseFloat(form.scheduleD.shortTermLoss) || 0);
+        longTermGain = parseFloat(form.scheduleD.longTermGain) || 0;
+        longTermLoss = Math.abs(parseFloat(form.scheduleD.longTermLoss) || 0);
+    } else if (form.capitalGainLoss !== undefined) {
+        const net = parseFloat(form.capitalGainLoss) || 0;
+        if (net >= 0) longTermGain = net; else longTermLoss = Math.abs(net);
     }
-
-    // Use Schedule D if present, otherwise fallback to Line 7 entry
-    // This prevents double-counting if both are populated
-    const totalCapitalGains = (form.hasScheduleD && form.scheduleD)
-        ? scheduleD
-        : (parseFloat(form.capitalGainLoss) || 0);
+    const netShortTerm = shortTermGain - shortTermLoss;
+    const netLongTerm = longTermGain - longTermLoss;
+    const netCapital = netShortTerm + netLongTerm;
+    const capLossLimit = filingStatus === 'marriedSeparate' ? 1500 : 3000;
+    const cappedCapitalForAGI = netCapital >= 0 ? netCapital : -Math.min(capLossLimit, Math.abs(netCapital));
 
 
     // ========================================================================
@@ -655,7 +671,7 @@ export function calculateTotalTax(form) {
     // ========================================================================
     const totalIncome = totalWages + taxableInterest + ordinaryDividends + taxableIra +
         taxablePensions + taxableSocialSecurity + otherIncome +
-        scheduleC + scheduleE + totalCapitalGains;
+        scheduleC + scheduleE + cappedCapitalForAGI;
 
 
     // ========================================================================
@@ -729,11 +745,12 @@ export function calculateTotalTax(form) {
     const magiForPhaseOut = tentativeTotalIncome - tentativeAdjustments;
     const phaseOutPct = getPhaseOutPct(magiForPhaseOut);
 
-    // Calculate new OBBBA deductions with phase-out
-    const tipsDeduction = Math.min(parseFloat(form.tipIncome) || 0, 25000) * phaseOutPct;
-    const overtimeDeduction = Math.min(parseFloat(form.overtimeIncome) || 0, 12500) * phaseOutPct;
-    const autoLoanDeduction = Math.min(parseFloat(form.autoLoanInterest) || 0, 10000);
-    const seniorBonus = calculateAge(form.birthDate) >= 65 ? 6000 : 0;
+    // Calculate new OBBBA deductions with phase-out (policy-gated)
+    const { useObbba2025 } = getPolicyFlags(form);
+    const tipsDeduction = useObbba2025 ? (Math.min(parseFloat(form.tipIncome) || 0, 25000) * phaseOutPct) : 0;
+    const overtimeDeduction = useObbba2025 ? (Math.min(parseFloat(form.overtimeIncome) || 0, 12500) * phaseOutPct) : 0;
+    const autoLoanDeduction = useObbba2025 ? Math.min(parseFloat(form.autoLoanInterest) || 0, 10000) : 0;
+    const seniorBonus = useObbba2025 && calculateAge(form.birthDate) >= 65 ? 6000 : 0;
 
 
     // ========================================================================
@@ -754,10 +771,14 @@ export function calculateTotalTax(form) {
      * - IRA contributions (Traditional IRA)
      * - Student loan interest (up to $2,500)
      */
+    // Include 50% SE tax deduction automatically (use provided value if larger, e.g., K-1 SE)
+    const wagesForSET = parseFloat(form.totalWages) || 0;
+    const { deduction: seTaxDeductionComputed } = calculateSelfEmploymentTax(scheduleC, wagesForSET, filingStatus);
+
     const totalAdjustments =
         (parseFloat(form.educatorExpenses) || 0) +
         (parseFloat(form.hsaDeduction) || 0) +
-        (parseFloat(form.selfEmploymentTaxDeduction) || 0) +
+        Math.max(parseFloat(form.selfEmploymentTaxDeduction) || 0, seTaxDeductionComputed) +
         (parseFloat(form.selfEmployedSEPSimple) || 0) +
         (parseFloat(form.selfEmployedHealthInsurance) || 0) +
         (parseFloat(form.penaltyEarlyWithdrawal) || 0) +
@@ -802,15 +823,16 @@ export function calculateTotalTax(form) {
      * - State and local income taxes (or sales taxes if elected)
      * - State and local property taxes
      */
-    const saltCap = filingStatus === 'marriedSeparate' ? 20000 : 40000;
+    const saltCap = getSaltCap(filingStatus, form);
     const actualSalt = Math.min(
         (parseFloat(form.stateLocalTaxes) || 0) + (parseFloat(form.realEstateTaxes) || 0),
         saltCap
     );
 
     // Calculate total itemized deductions (Schedule A)
+    const medicalDeductible = Math.max(0, (parseFloat(form.medicalExpenses) || 0) - (agi * 0.075));
     const itemizedTotal =
-        (parseFloat(form.medicalExpenses) || 0) +  // Subject to 7.5% AGI floor
+        medicalDeductible +                         // 7.5% AGI floor applied
         actualSalt +                                // Subject to SALT cap
         (parseFloat(form.mortgageInterest) || 0) +  // Limit: $750k acquisition debt
         (parseFloat(form.charityCash) || 0) +       // Limit: 60% of AGI
@@ -852,16 +874,20 @@ export function calculateTotalTax(form) {
      * specified service trades, aggregation elections) require Form 8995-A.
      */
     let qbiDeduction = 0;
-    if (scheduleC > 0) {
-        // Tentative QBI deduction: 20% of qualified business income
-        const tentativeQBI = scheduleC * 0.20;
+    {
+        // Include Schedule C and optional K‑1 ordinary income (minus guaranteed payments) when provided
+        const guaranteedPayments = parseFloat(form.scheduleK1?.guaranteedPayments) || 0;
+        const partnershipIncome = parseFloat(form.partnershipIncome) || parseFloat(form.scheduleK1?.ordinaryIncome) || 0;
+        const sCorpIncome = parseFloat(form.sCorpIncome) || 0;
+        const qbiEligible = Math.max(0, scheduleC) + Math.max(0, partnershipIncome + sCorpIncome - guaranteedPayments);
 
-        // Limitation: Can't exceed 20% of (taxable income - net capital gains)
-        const taxableBeforeQBI = Math.max(0, agi - deduction);
-        const capGains = form.hasScheduleD ? (parseFloat(form.scheduleD?.longTermGain) || 0) : 0;
-        const limit = (taxableBeforeQBI - capGains) * 0.20;
-
-        qbiDeduction = Math.min(tentativeQBI, Math.max(0, limit));
+        if (qbiEligible > 0) {
+            const tentativeQBI = qbiEligible * 0.20;
+            const taxableBeforeQBI = Math.max(0, agi - deduction);
+            const netCapGainForLimit = Math.max(0, netLongTerm) + Math.max(0, qualifiedDividends);
+            const limit = (taxableBeforeQBI - netCapGainForLimit) * 0.20;
+            qbiDeduction = Math.min(tentativeQBI, Math.max(0, limit));
+        }
     }
 
 
@@ -877,8 +903,7 @@ export function calculateTotalTax(form) {
     // ========================================================================
 
     // Separate qualified income (taxed at preferential rates)
-    const longTermGains = form.hasScheduleD ? (parseFloat(form.scheduleD?.longTermGain) || 0) : 0;
-    const totalQualifiedIncome = qualifiedDividends + Math.max(0, longTermGains);
+    const totalQualifiedIncome = qualifiedDividends + Math.max(0, netLongTerm);
 
     // Ordinary income = taxable income minus qualified income
     const ordinaryTaxableIncome = Math.max(0, taxableIncome - totalQualifiedIncome);
@@ -896,11 +921,12 @@ export function calculateTotalTax(form) {
     // ========================================================================
 
     // Self-Employment Tax (Schedule SE)
-    const { tax: seTax } = calculateSelfEmploymentTax(scheduleC);
+    const { tax: seTax } = calculateSelfEmploymentTax(scheduleC, wagesForSET, filingStatus);
 
     // Net Investment Income Tax (Form 8960)
     // Investment income = Interest + Dividends + Capital Gains + Passive Rental
-    const investmentIncome = taxableInterest + ordinaryDividends + totalCapitalGains + scheduleE;
+    const netPositiveCap = Math.max(0, netCapital);
+    const investmentIncome = taxableInterest + ordinaryDividends + netPositiveCap + scheduleE;
     const niit = calculateNIIT(agi, investmentIncome, filingStatus);
 
     // Total tax before credits
