@@ -138,6 +138,47 @@ This library includes updates for the One Big Beautiful Bill Act of 2025:
 - ✅ Child Tax Credit increased to $2,200
 - ✅ New deductions: Tips ($25k), Overtime ($12.5k), Auto Loan ($10k)
 
+### Policy Flags
+
+In some environments you may want to evaluate returns under pre‑OBBBA assumptions (e.g., SALT cap $10k, no new 2025 deductions). Use the policy flag on the form:
+
+```js
+// OBBBA-enabled (default behavior)
+calculateTotalTax({ /* form fields... */, useObbba2025: true })
+
+// Current-law fallback (pre‑OBBBA): SALT cap $10k, no new 2025 deductions
+calculateTotalTax({ /* form fields... */, useObbba2025: false })
+```
+
+Other notable behaviors:
+
+- Self-Employment tax considers W‑2 wages for the Social Security wage base and applies Additional Medicare thresholds by filing status: `calculateSelfEmploymentTax(income, wages=0, filingStatus='single')`.
+- Capital losses are limited to $3,000 ($1,500 MFS) against ordinary income; excess carries forward (not modeled here).
+- QBI limit subtracts qualified dividends and net long‑term gains. Optional K‑1 ordinary income minus guaranteed payments is included when provided.
+
+## Testing
+
+This repo uses Vitest. Run tests locally with:
+
+```bash
+npm test
+```
+
+If you encounter worker/thread issues in constrained environments, try one of:
+
+```bash
+vitest --run --pool=forks
+vitest --run --threads=false
+```
+
+Core areas covered by unit tests include:
+
+- Progressive bracket tax and LTCG stacking
+- Self‑employment tax with W‑2 wages + thresholds
+- Medical 7.5% floor and SALT cap policy gating
+- Capital loss $3k ($1.5k MFS) limitation
+- QBI limit with qualified dividends and LT gains; optional K‑1 inclusion
+
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
